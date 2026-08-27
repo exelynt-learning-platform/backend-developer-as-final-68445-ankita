@@ -83,20 +83,40 @@ public class ReservationService {
                         new ResourceNotFoundException(
                                 "User not found: " + username));
 
+// Calculate booking duration
+long minutes = Duration.between(
+        request.getStartTime(),
+        request.getEndTime()
+).toMinutes();
 
-        // Calculate booking duration
-        long minutes = Duration.between(
-                request.getStartTime(),
-                request.getEndTime()
-        ).toMinutes();
+// Duration must be at least 1 minute
+if (minutes < 1) {
+    throw new InvalidBookingException(
+            "Reservation duration must be at least 1 minute.");
+}
 
-        double hours = minutes / 60.0;
+double hours = minutes / 60.0;
 
 
-        // Calculate reservation price
-        BigDecimal price = resource
-                .getPricePerHour()
-                .multiply(BigDecimal.valueOf(hours));
+// Validate resource hourly price
+if (resource.getPricePerHour() == null ||
+        resource.getPricePerHour().compareTo(BigDecimal.ZERO) <= 0) {
+
+    throw new InvalidBookingException(
+            "Resource price per hour must be greater than zero.");
+}
+
+
+// Calculate reservation price
+BigDecimal price = resource
+        .getPricePerHour()
+        .multiply(BigDecimal.valueOf(hours));
+
+// Calculated reservation price must be positive
+if (price.compareTo(BigDecimal.ZERO) <= 0) {
+    throw new InvalidBookingException(
+            "Reservation price must be greater than zero.");
+}
 
 
         // Create reservation
@@ -120,9 +140,8 @@ public class ReservationService {
     }
 
 
-    // =========================
     // GET RESERVATIONS
-    // =========================
+   
 
     public Page<ReservationDTO> getReservations(
             ReservationStatus status,
@@ -204,11 +223,8 @@ public class ReservationService {
         return mapToDTO(reservation);
     }
 
-
-    // =========================
     // CANCEL RESERVATION
-    // =========================
-
+    
     public ReservationDTO cancelReservation(
             Long id,
             String username) {
@@ -248,12 +264,9 @@ public class ReservationService {
         );
     }
 
-
-    // =========================
     // CONFIRM RESERVATION
     // ADMIN ONLY
-    // =========================
-
+    
     public ReservationDTO confirmReservation(Long id) {
 
         Reservation reservation =
@@ -274,11 +287,9 @@ public class ReservationService {
     }
 
 
-    // =========================
     // DELETE RESERVATION
     // ADMIN ONLY
-    // =========================
-
+    
     public void deleteReservation(Long id) {
 
         Reservation reservation =
@@ -291,11 +302,6 @@ public class ReservationService {
 
         reservationRepository.delete(reservation);
     }
-
-
-    // =========================
-    // DTO MAPPING
-    // =========================
 
     private ReservationDTO mapToDTO(
             Reservation reservation) {
