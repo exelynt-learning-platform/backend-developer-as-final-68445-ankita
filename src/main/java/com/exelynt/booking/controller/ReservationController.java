@@ -6,6 +6,8 @@ import com.exelynt.booking.entity.ReservationStatus;
 import com.exelynt.booking.service.ReservationService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -17,18 +19,18 @@ import org.springframework.http.ResponseEntity;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 
 @RestController
+@Validated
 @RequestMapping("/api/reservations")
 public class ReservationController {
 
     @Autowired
     private ReservationService reservationService;
-
 
     // USER and ADMIN can create reservations
     @PostMapping
@@ -40,46 +42,28 @@ public class ReservationController {
 
         return new ResponseEntity<>(
                 reservationService.createReservation(request, username),
-                HttpStatus.CREATED
-        );
+                HttpStatus.CREATED);
     }
-
 
     // ADMIN sees all reservations
     // USER sees only their own reservations
     @GetMapping
     public ResponseEntity<Page<ReservationDTO>> getReservations(
 
-            @RequestParam(required = false)
-            ReservationStatus status,
+            @RequestParam(required = false) ReservationStatus status,
 
-            @RequestParam(required = false)
-            BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal minPrice,
 
-            @RequestParam(required = false)
-            BigDecimal maxPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
 
-            @RequestParam(defaultValue = "0")
-            int page,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size,
 
-            @RequestParam(defaultValue = "10")
-            int size,
+            @RequestParam(defaultValue = "startTime") String sortBy,
 
-            @RequestParam(defaultValue = "startTime")
-            String sortBy,
-
-            @RequestParam(defaultValue = "asc")
-            String sortDir,
+            @RequestParam(defaultValue = "asc") String sortDir,
 
             Authentication authentication) {
-
-        if (page < 0) {
-            page = 0;
-        }
-
-        if (size < 1 || size > 100) {
-            size = 10;
-        }
 
         Sort sort;
 
@@ -89,8 +73,7 @@ public class ReservationController {
             sort = Sort.by(sortBy).ascending();
         }
 
-        PageRequest pageable =
-                PageRequest.of(page, size, sort);
+        PageRequest pageable = PageRequest.of(page, size, sort);
 
         String username = getAuthenticatedUsername(authentication);
 
@@ -100,11 +83,8 @@ public class ReservationController {
                         minPrice,
                         maxPrice,
                         pageable,
-                        username
-                )
-        );
+                        username));
     }
-
 
     // Get one reservation
     @GetMapping("/{id}")
@@ -117,11 +97,8 @@ public class ReservationController {
         return ResponseEntity.ok(
                 reservationService.getReservationById(
                         id,
-                        username
-                )
-        );
+                        username));
     }
-
 
     // USER can cancel own reservation
     // ADMIN can cancel any reservation
@@ -135,35 +112,21 @@ public class ReservationController {
         return ResponseEntity.ok(
                 reservationService.cancelReservation(
                         id,
-                        username
-                )
-        );
+                        username));
     }
 
-
-    // Only ADMIN can confirm
     @PutMapping("/{id}/confirm")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ReservationDTO> confirmReservation(
-            @PathVariable Long id) {
-
-        return ResponseEntity.ok(
-                reservationService.confirmReservation(id)
-        );
+    public ResponseEntity<ReservationDTO> confirmReservation(@PathVariable Long id) {
+        return ResponseEntity.ok(reservationService.confirmReservation(id));
     }
 
-
-    // Only ADMIN can delete
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteReservation(
-            @PathVariable Long id) {
-
+    public ResponseEntity<Void> deleteReservation(@PathVariable Long id) {
         reservationService.deleteReservation(id);
-
         return ResponseEntity.noContent().build();
     }
-
 
     // Helper method to safely get authenticated username
     private String getAuthenticatedUsername(Authentication authentication) {

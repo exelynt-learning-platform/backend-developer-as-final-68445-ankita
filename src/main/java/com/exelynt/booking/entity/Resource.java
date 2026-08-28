@@ -10,67 +10,60 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 @Entity
-
 @Table(name = "resources")
-
 public class Resource {
 
-	@Id
-	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-	@Column(nullable =false )
-    private String name;	
+    @Column(nullable = false)
+    private String name;
 
-	private String description;
-	
-	@Column(nullable = false)
-	private BigDecimal pricePerHour;
-	
-	public Resource() {
-		
-	}
+    private String description;
 
-	public Resource(Long id, String name, String description, BigDecimal pricePerHour) {
-		super();
-		this.id = id;
-		this.name = name;
-		this.description = description;
-		this.pricePerHour = pricePerHour;
-	}
+    @Column(name = "price_per_hour", nullable = false, precision = 10, scale = 2)
+    private BigDecimal pricePerHour;
 
-	public Long getId() {
-		return id;
-	}
+    public Resource() {
+    }
 
-	public void setId(Long id) {
-		this.id = id;
-	}
+    public Resource(Long id, String name, String description, BigDecimal pricePerHour) {
+        this.id = id;
+        this.name = name;
+        this.description = description;
+        this.pricePerHour = pricePerHour;
+    }
 
-	public String getName() {
-		return name;
-	}
+    public Long getId() {
+        return id;
+    }
 
-	public void setName(String name) {
-		this.name = name;
-	}
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-	public String getDescription() {
-		return description;
-	}
+    public String getName() {
+        return name;
+    }
 
-	public void setDescription(String description) {
-		this.description = description;
-	}
+    public void setName(String name) {
+        this.name = name;
+    }
 
-	public BigDecimal getPricePerHour() {
-		return pricePerHour;
-	}
+    public String getDescription() {
+        return description;
+    }
 
-	public void setPricePerHour(BigDecimal pricePerHour) {
-		this.pricePerHour = pricePerHour;
-	}
-	
-	
+    public void setDescription(String description) {
+        this.description = description;
+    }
 
+    public BigDecimal getPricePerHour() {
+        return pricePerHour;
+    }
+
+    public void setPricePerHour(BigDecimal pricePerHour) {
+        this.pricePerHour = pricePerHour;
+    }
 }

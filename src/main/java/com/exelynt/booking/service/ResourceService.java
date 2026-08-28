@@ -25,7 +25,10 @@ public class ResourceService {
     }
 
     public Resource createResource(ResourceRequest request) {
-        Resource resource = new Resource(null, request.getName(), request.getDescription(), request.getPricePerHour());
+        Resource resource = new Resource();
+        resource.setName(request.getName());
+        resource.setDescription(request.getDescription());
+        resource.setPricePerHour(request.getPricePerHour());
         return resourceRepository.save(resource);
     }
 

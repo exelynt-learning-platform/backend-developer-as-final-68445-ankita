@@ -1,247 +1,157 @@
 # Resource Booking System
 
-A secure RESTful Resource Booking System built using Spring Boot, Java 17,
-Spring Security, JWT, PostgreSQL, JPA and Hibernate.
+A secure RESTful API for booking resources (rooms, vehicles, equipment) built with Spring Boot, Spring Security, JWT authentication, and role-based access control (RBAC).
 
-## Technologies
+## Tech Stack
 
-- Java 17
+- Java 17+ (tested on 21)
 - Spring Boot 3.2.3
-- Spring Security
-- JWT
-- BCrypt
-- Spring Data JPA
-- Hibernate
+- Spring Security + JWT (jjwt 0.12.5)
+- Spring Data JPA / Hibernate
 - PostgreSQL
-- Swagger/OpenAPI
 - Maven
 
 ## Features
 
-- JWT based authentication
-- ADMIN and USER role-based authorization
-- BCrypt password encryption
-- Resource CRUD operations
-- Reservation management
-- Reservation ownership
-- Reservation statuses:
-  - PENDING
-  - CONFIRMED
-  - CANCELLED
-- Reservation filtering by:
-  - status
-  - minimum price
-  - maximum price
-- Pagination
-- Sorting
-- Input validation
-- Global exception handling
-- PostgreSQL database integration
-- Swagger API documentation
+- JWT-based authentication (`POST /auth/login`)
+- Role-based access control: `ROLE_ADMIN`, `ROLE_USER`
+  - **ADMIN**: full CRUD on resources and reservations
+  - **USER**: read-only on resources; create/view/cancel own reservations only
+- Reservation lifecycle: `PENDING` → `CONFIRMED` / `CANCELLED`
+- Reservation price stored as `BigDecimal` (scale 2), calculated from resource hourly rate × duration
+- Filtering reservations by `status`, `minPrice`, `maxPrice`
+- Pagination (`page`, `size`) and sorting (`sortBy`, `sortDir`)
+- User identity always resolved server-side from the JWT — never trusted from the request body
+- Global exception handling with structured error responses (400/401/403/404/500)
+- API documentation via Swagger/OpenAPI
 
-## Roles
+## Prerequisites
 
-### ADMIN
+- JDK 17+
+- Maven 3.8+
+- PostgreSQL 14+ running locally or accessible remotely
 
-ADMIN can:
+## Environment Variables
 
-- Create resources
-- View resources
-- Update resources
-- Delete resources
-- View all reservations
-- Create reservations
-- Confirm reservations
-- Cancel reservations
-- Delete reservations
+| Variable | Description | Example |
+|---|---|---|
+| `DB_PASSWORD` | Database password | `yourStrongDbPassword` |
+| `JWT_SECRET` | Secret key used to sign JWTs (required, no default) | Generate with `openssl rand -hex 32` |
+| `JWT_EXPIRATION` | Token validity in ms (optional, default `3600000` = 1 hour) | `3600000` |
 
-### USER
+**PowerShell:**
+```powershell
+$env:DB_PASSWORD="yourStrongDbPassword"
+$env:JWT_SECRET="<your generated secret>"
+$env:JWT_EXPIRATION="3600000"
+```
 
-USER can:
+**Linux/macOS:**
+```bash
+export DB_PASSWORD=yourStrongDbPassword
+export JWT_SECRET=$(openssl rand -hex 32)
+export JWT_EXPIRATION=3600000
+```
 
-- View resources
-- Create reservations
-- View only their own reservations
-- Cancel their own reservations
+## Database Setup
 
-USER identity is obtained from the authenticated JWT and is not accepted
-from the reservation request.
+```sql
+CREATE DATABASE booking_db;
+```
 
-## Database Configuration
+Schema is auto-managed via `spring.jpa.hibernate.ddl-auto=update` on startup — no manual migrations needed.
 
-Create a PostgreSQL database:
-
-    CREATE DATABASE booking_db;
-
-Configure the database in:
-
-    src/main/resources/application.properties
-
-Example:
-
-    spring.datasource.url=jdbc:postgresql://localhost:5432/booking_db
-    spring.datasource.username=postgres
-    spring.datasource.password=YOUR_PASSWORD
+Default connection settings in `application.properties`:
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/booking_db
+spring.datasource.username=postgres
+spring.datasource.password=${DB_PASSWORD}
+```
 
 ## Running the Application
 
-1. Install Java 17 or higher.
-2. Install PostgreSQL.
-3. Create the `booking_db` database.
-4. Update database credentials.
-5. Run the application using Maven:
+```bash
+mvn clean install
+mvn spring-boot:run
+```
 
-    mvn spring-boot:run
-
-Or run `BookingApplication` from Eclipse/IntelliJ.
-
-The application runs on:
-
-    http://localhost:8080
-
-## Authentication
-
-Login:
-
-    POST /auth/login
-
-Request:
-
-    {
-      "username": "admin",
-      "password": "admin123"
-    }
-
-The response contains a JWT token.
-
-Use the token in protected requests:
-
-    Authorization: Bearer <JWT_TOKEN>
+Runs on `http://localhost:8080`.
 
 ## Seed Users
 
-The application creates test users for development/testing.
+Created automatically on first startup:
 
-### ADMIN
+| Username | Password | Role |
+|---|---|---|
+| `admin` | `admin123` | `ROLE_ADMIN` |
+| `user` | `user123` | `ROLE_USER` |
 
-    Username: admin
-    Password: admin123
-    Role: ROLE_ADMIN
+## Authentication
 
-### USER
+```http
+POST /auth/login
+Content-Type: application/json
 
-    Username: user
-    Password: user123
-    Role: ROLE_USER
+{
+  "username": "admin",
+  "password": "admin123"
+}
+```
+
+**Response:**
+```json
+{
+  "token": "eyJhbGciOiJIUzUxMiJ9..."
+}
+```
+
+Use on subsequent requests:
+```http
+Authorization: Bearer <token>
+```
 
 ## API Endpoints
 
-### Authentication
-
-    POST /auth/login
-
 ### Resources
-
-    GET    /api/resources
-    GET    /api/resources/{id}
-    POST   /api/resources
-    PUT    /api/resources/{id}
-    DELETE /api/resources/{id}
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | `/api/resources` | Any authenticated user |
+| GET | `/api/resources/{id}` | Any authenticated user |
+| POST | `/api/resources` | ADMIN only |
+| PUT | `/api/resources/{id}` | ADMIN only |
+| DELETE | `/api/resources/{id}` | ADMIN only |
 
 ### Reservations
+| Method | Endpoint | Access |
+|---|---|---|
+| POST | `/api/reservations` | Any authenticated user (creates for self) |
+| GET | `/api/reservations` | ADMIN sees all; USER sees own only |
+| GET | `/api/reservations/{id}` | ADMIN any; USER own only |
+| PUT | `/api/reservations/{id}/cancel` | ADMIN any; USER own only |
+| PUT | `/api/reservations/{id}/confirm` | ADMIN only |
+| DELETE | `/api/reservations/{id}` | ADMIN only |
 
-    POST   /api/reservations
-    GET    /api/reservations
-    GET    /api/reservations/{id}
-    PUT    /api/reservations/{id}/cancel
-    PUT    /api/reservations/{id}/confirm
-    DELETE /api/reservations/{id}
+**Filtering, sorting & pagination example:**
+GET /api/reservations?status=CONFIRMED&minPrice=50&maxPrice=200&page=0&size=5&sortBy=price&sortDir=desc
 
-## Reservation Filtering
 
-Filter by status:
+## API Documentation
 
-    GET /api/reservations?status=CONFIRMED
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- OpenAPI spec: `http://localhost:8080/v3/api-docs`
 
-Minimum price:
+## Error Responses
 
-    GET /api/reservations?minPrice=1000
+| Status | Cause |
+|---|---|
+| 400 | Validation failure / invalid booking (e.g. end time before start time) |
+| 401 | Missing/invalid/expired token, or wrong login credentials |
+| 403 | Insufficient role, or accessing another user's reservation |
+| 404 | Resource/reservation not found |
+| 500 | Unexpected server error |
 
-Maximum price:
+## Security Notes
 
-    GET /api/reservations?maxPrice=2000
-
-Combined:
-
-    GET /api/reservations?status=PENDING&minPrice=500&maxPrice=2000
-
-## Pagination
-
-Example:
-
-    GET /api/reservations?page=0&size=10
-
-## Sorting
-
-Ascending:
-
-    GET /api/reservations?sortBy=startTime&sortDir=asc
-
-Descending:
-
-    GET /api/reservations?sortBy=startTime&sortDir=desc
-
-## Swagger
-
-Swagger UI:
-
-    http://localhost:8080/swagger-ui/index.html
-
-OpenAPI documentation:
-
-    http://localhost:8080/v3/api-docs
-
-## Project Structure
-
-    src/main/java/com/exelynt/booking
-
-    ├── controller
-    ├── service
-    ├── repository
-    ├── entity
-    ├── dto
-    ├── security
-    └── exception
-
-## Validation
-
-The application validates:
-
-- Required resource fields
-- Positive resource price
-- Required reservation resource
-- Required start time
-- Required end time
-- End time must be after start time
-- Reservations cannot be created in the past
-
-## Error Handling
-
-The application handles:
-
-- 400 Bad Request
-- 401 Unauthorized
-- 403 Forbidden
-- 404 Not Found
-- 500 Internal Server Error
-
-## Security
-
-The application uses:
-
-- JWT authentication
-- BCrypt password hashing
-- Stateless sessions
-- Role-based authorization
-- Protected API endpoints
-- Reservation ownership validation
+- Passwords hashed with BCrypt.
+- `JWT_SECRET` must be supplied via environment variable — app fails to start if unset (no insecure default).
+- Reservation ownership is always derived from the authenticated JWT principal, never from the request body.

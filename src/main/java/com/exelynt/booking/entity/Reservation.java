@@ -20,10 +20,10 @@ public class Reservation {
     @JoinColumn(name = "resource_id", nullable = false)
     private Resource resource;
 
-    @Column(nullable = false)
+    @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
 
-    @Column(nullable = false)
+    @Column(name = "end_time", nullable = false)
     private LocalDateTime endTime;
 
     @Enumerated(EnumType.STRING)

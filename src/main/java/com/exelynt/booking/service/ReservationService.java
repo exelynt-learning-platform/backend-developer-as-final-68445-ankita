@@ -22,298 +22,200 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
 @Service
 public class ReservationService {
 
-    @Autowired
-    private ReservationRepository reservationRepository;
+        @Autowired
+        private ReservationRepository reservationRepository;
 
-    @Autowired
-    private ResourceRepository resourceRepository;
+        @Autowired
+        private ResourceRepository resourceRepository;
 
-    @Autowired
-    private UserRepository userRepository;
+        @Autowired
+        private UserRepository userRepository;
 
+        // CREATE RESERVATION
 
-    // =========================
-    // CREATE RESERVATION
-    // =========================
+        public ReservationDTO createReservation(CreateReservationRequest request, String username) {
 
-    public ReservationDTO createReservation(
-            CreateReservationRequest request,
-            String username) {
+                validateBookingTimes(request.getStartTime(), request.getEndTime());
 
-        // Validate time
-        if (request.getStartTime() == null ||
-                request.getEndTime() == null) {
+                Resource resource = resourceRepository.findById(request.getResourceId())
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Resource not found with ID: " + request.getResourceId()));
 
-            throw new InvalidBookingException(
-                    "Start time and end time are required.");
+                User user = userRepository.findByUserName(username)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+
+                BigDecimal price = calculatePrice(resource, request.getStartTime(), request.getEndTime());
+
+                Reservation reservation = new Reservation();
+                reservation.setUser(user);
+                reservation.setResource(resource);
+                reservation.setStartTime(request.getStartTime());
+                reservation.setEndTime(request.getEndTime());
+                reservation.setStatus(ReservationStatus.PENDING);
+                reservation.setPrice(price);
+
+                Reservation saved = reservationRepository.save(reservation);
+
+                return mapToDTO(saved);
         }
 
-        if (!request.getEndTime().isAfter(request.getStartTime())) {
+        private void validateBookingTimes(LocalDateTime startTime, LocalDateTime endTime) {
 
-            throw new InvalidBookingException(
-                    "End time must be strictly after start time.");
+                if (startTime == null || endTime == null) {
+                        throw new InvalidBookingException("Start time and end time are required.");
+                }
+
+                if (!endTime.isAfter(startTime)) {
+                        throw new InvalidBookingException("End time must be strictly after start time.");
+                }
+
+                if (startTime.isBefore(LocalDateTime.now())) {
+                        throw new InvalidBookingException("Cannot create reservations in the past.");
+                }
+
+                if (Duration.between(startTime, endTime).toMinutes() < 1) {
+                        throw new InvalidBookingException("Reservation duration must be at least 1 minute.");
+                }
         }
 
-        if (request.getStartTime().isBefore(LocalDateTime.now())) {
+        private BigDecimal calculatePrice(Resource resource, LocalDateTime startTime, LocalDateTime endTime) {
 
-            throw new InvalidBookingException(
-                    "Cannot create reservations in the past.");
+                if (resource.getPricePerHour() == null ||
+                                resource.getPricePerHour().compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new InvalidBookingException("Resource price per hour must be greater than zero.");
+                }
+
+                long minutes = Duration.between(startTime, endTime).toMinutes();
+                BigDecimal hours = BigDecimal.valueOf(minutes)
+                                .divide(BigDecimal.valueOf(60), 4, RoundingMode.HALF_UP);
+
+                BigDecimal price = resource.getPricePerHour()
+                                .multiply(hours)
+                                .setScale(2, RoundingMode.HALF_UP);
+
+                if (price.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new InvalidBookingException("Reservation price must be greater than zero.");
+                }
+
+                return price;
+        }
+        // ==========================================================
+        // GET RESERVATIONS (paginated, filtered)
+        // ==========================================================
+
+        public Page<ReservationDTO> getReservations(
+                        ReservationStatus status,
+                        BigDecimal minPrice,
+                        BigDecimal maxPrice,
+                        Pageable pageable,
+                        String username) {
+
+                User user = userRepository.findByUserName(username)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+
+                Specification<Reservation> spec = Specification
+                                .where(ReservationSpecifications.hasStatus(status))
+                                .and(ReservationSpecifications.hasMinPrice(minPrice))
+                                .and(ReservationSpecifications.hasMaxPrice(maxPrice));
+
+                // USER can see only own reservations; ADMIN sees all
+                if (user.getRole() != Role.ROLE_ADMIN) {
+                        spec = spec.and((root, query, cb) -> cb.equal(root.get("user").get("id"), user.getId()));
+                }
+
+                return reservationRepository.findAll(spec, pageable)
+                                .map(this::mapToDTO);
         }
 
+        // ==========================================================
+        // GET RESERVATION BY ID
+        // ==========================================================
 
-        // Find resource
-        Resource resource = resourceRepository
-                .findById(request.getResourceId())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Resource not found with ID: "
-                                        + request.getResourceId()));
+        public ReservationDTO getReservationById(Long reservationId, String username) {
 
+                Reservation reservation = reservationRepository.findById(reservationId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Reservation not found with ID: " + reservationId));
 
-        // Get logged-in user
-        User user = userRepository
-                .findByUserName(username)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "User not found: " + username));
+                User user = userRepository.findByUserName(username)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
 
-// Calculate booking duration
-long minutes = Duration.between(
-        request.getStartTime(),
-        request.getEndTime()
-).toMinutes();
+                if (user.getRole() != Role.ROLE_ADMIN &&
+                                !reservation.getUser().getId().equals(user.getId())) {
+                        throw new AccessDeniedException("You are not authorized to view this reservation.");
+                }
 
-// Duration must be at least 1 minute
-if (minutes < 1) {
-    throw new InvalidBookingException(
-            "Reservation duration must be at least 1 minute.");
-}
-
-double hours = minutes / 60.0;
-
-
-// Validate resource hourly price
-if (resource.getPricePerHour() == null ||
-        resource.getPricePerHour().compareTo(BigDecimal.ZERO) <= 0) {
-
-    throw new InvalidBookingException(
-            "Resource price per hour must be greater than zero.");
-}
-
-
-// Calculate reservation price
-BigDecimal price = resource
-        .getPricePerHour()
-        .multiply(BigDecimal.valueOf(hours));
-
-// Calculated reservation price must be positive
-if (price.compareTo(BigDecimal.ZERO) <= 0) {
-    throw new InvalidBookingException(
-            "Reservation price must be greater than zero.");
-}
-
-
-        // Create reservation
-        Reservation reservation = new Reservation();
-
-        reservation.setUser(user);
-        reservation.setResource(resource);
-        reservation.setStartTime(request.getStartTime());
-        reservation.setEndTime(request.getEndTime());
-
-        // New reservation starts as PENDING
-        reservation.setStatus(ReservationStatus.PENDING);
-
-        reservation.setPrice(price);
-
-
-        Reservation saved =
-                reservationRepository.save(reservation);
-
-        return mapToDTO(saved);
-    }
-
-
-    // GET RESERVATIONS
-   
-
-    public Page<ReservationDTO> getReservations(
-            ReservationStatus status,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            Pageable pageable,
-            String username) {
-
-        User user = userRepository
-                .findByUserName(username)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "User not found: " + username));
-
-
-        Specification<Reservation> spec =
-                Specification
-                        .where(ReservationSpecifications.hasStatus(status))
-                        .and(ReservationSpecifications.hasMinPrice(minPrice))
-                        .and(ReservationSpecifications.hasMaxPrice(maxPrice));
-
-
-        // USER can see only own reservations
-        if (user.getRole() != Role.ROLE_ADMIN) {
-
-            spec = spec.and(
-                    (root, query, cb) ->
-                            cb.equal(
-                                    root.get("user").get("id"),
-                                    user.getId()
-                            )
-            );
+                return mapToDTO(reservation);
         }
 
+        // ==========================================================
+        // CANCEL RESERVATION
+        // ==========================================================
 
-        return reservationRepository
-                .findAll(spec, pageable)
-                .map(this::mapToDTO);
-    }
+        public ReservationDTO cancelReservation(Long id, String username) {
 
-    
-    // GET RESERVATION BY ID
+                Reservation reservation = reservationRepository.findById(id)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Reservation not found with ID: " + id));
 
-    public ReservationDTO getReservationById(
-            Long reservationId,
-            String username) {
+                User user = userRepository.findByUserName(username)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
 
-        // Find reservation
-        Reservation reservation =
-                reservationRepository
-                        .findById(reservationId)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Reservation not found with ID: "
-                                                + reservationId));
+                if (user.getRole() != Role.ROLE_ADMIN &&
+                                !reservation.getUser().getId().equals(user.getId())) {
+                        throw new AccessDeniedException("You are not authorized to cancel this reservation.");
+                }
 
+                reservation.setStatus(ReservationStatus.CANCELLED);
 
-        // Find logged-in user
-        User user =
-                userRepository
-                        .findByUserName(username)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "User not found: "
-                                                + username));
-
-
-        // USER can access only own reservation
-        // ADMIN can access any reservation
-        if (user.getRole() != Role.ROLE_ADMIN &&
-                !reservation.getUser().getId()
-                        .equals(user.getId())) {
-
-            throw new AccessDeniedException(
-                    "You are not authorized to view this reservation.");
+                return mapToDTO(reservationRepository.save(reservation));
         }
 
+        // ==========================================================
+        // CONFIRM RESERVATION (ADMIN only — enforced via @PreAuthorize in controller)
+        // ==========================================================
 
-        return mapToDTO(reservation);
-    }
+        public ReservationDTO confirmReservation(Long id) {
 
-    // CANCEL RESERVATION
-    
-    public ReservationDTO cancelReservation(
-            Long id,
-            String username) {
+                Reservation reservation = reservationRepository.findById(id)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Reservation not found with ID: " + id));
 
-        Reservation reservation =
-                reservationRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Reservation not found with ID: "
-                                                + id));
+                reservation.setStatus(ReservationStatus.CONFIRMED);
 
-
-        User user = userRepository
-                .findByUserName(username)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "User not found: " + username));
-
-
-        // USER can cancel only own reservation
-        // ADMIN can cancel any reservation
-        if (user.getRole() != Role.ROLE_ADMIN &&
-                !reservation.getUser().getId()
-                        .equals(user.getId())) {
-
-            throw new AccessDeniedException(
-                    "You are not authorized to cancel this reservation.");
+                return mapToDTO(reservationRepository.save(reservation));
         }
 
+        // ==========================================================
+        // DELETE RESERVATION (ADMIN only — enforced via @PreAuthorize in controller)
+        // ==========================================================
 
-        reservation.setStatus(
-                ReservationStatus.CANCELLED);
+        public void deleteReservation(Long id) {
 
+                Reservation reservation = reservationRepository.findById(id)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Reservation not found with ID: " + id));
 
-        return mapToDTO(
-                reservationRepository.save(reservation)
-        );
-    }
+                reservationRepository.delete(reservation);
+        }
 
-    // CONFIRM RESERVATION
-    // ADMIN ONLY
-    
-    public ReservationDTO confirmReservation(Long id) {
+        // MAPPING
+        private ReservationDTO mapToDTO(Reservation reservation) {
 
-        Reservation reservation =
-                reservationRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Reservation not found with ID: "
-                                                + id));
-
-
-        reservation.setStatus(
-                ReservationStatus.CONFIRMED);
-
-
-        return mapToDTO(
-                reservationRepository.save(reservation)
-        );
-    }
-
-
-    // DELETE RESERVATION
-    // ADMIN ONLY
-    
-    public void deleteReservation(Long id) {
-
-        Reservation reservation =
-                reservationRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Reservation not found with ID: "
-                                                + id));
-
-
-        reservationRepository.delete(reservation);
-    }
-
-    private ReservationDTO mapToDTO(
-            Reservation reservation) {
-
-        return new ReservationDTO(
-                reservation.getId(),
-                reservation.getUser().getUserName(),
-                reservation.getResource().getName(),
-                reservation.getStartTime(),
-                reservation.getEndTime(),
-                reservation.getStatus(),
-                reservation.getPrice()
-        );
-    }
+                return new ReservationDTO(
+                                reservation.getId(),
+                                reservation.getUser().getUserName(),
+                                reservation.getResource().getName(),
+                                reservation.getStartTime(),
+                                reservation.getEndTime(),
+                                reservation.getStatus(),
+                                reservation.getPrice());
+        }
 }
